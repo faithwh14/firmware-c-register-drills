@@ -196,6 +196,88 @@ uint32_t AlignUp(uint32_t reg, int n) {
 }
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// Polling + Timeout
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+int hw_delay = 0;
+
+#define STATUS_READY    0x01
+#define STATUS_NOTREADY 0x00
+
+typedef struct _Object {
+    uint8_t Status;
+    uint32_t Data;
+} Object;
+
+void InitObject(Object* obj) {
+    obj->Status = STATUS_NOTREADY;
+    obj->Status = 0;
+}
+
+int FakeHwTick(Object obj) {
+    if (obj.Status != STATUS_READY) {
+        hw_delay++;
+        return 0;
+    } 
+    
+    return 1;
+}
+
+int WaitForBits(Object obj, int timeout) {
+    while (hw_delay < timeout) {
+        if (FakeHwTick(obj)) {
+            return STATUS_READY;
+        }
+    }
+}
+
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// Protocols
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+#define CR(Record, Type, Field) \
+    ((Type*)((uint8_t*)(Record) + offsetof(Type, Field)))
+
+#define Signature   ({0xCE, 0x21, 0x53, 0x12})
+
+typedef struct _Data Data;
+
+typedef struct _Protocol {
+    uint32_t Signature;
+    uint32_t Id;
+    Data* ShrData;
+} Protocol;
+
+struct Data {
+    uint8_t Data1;
+    uint8_t Data2;
+    uint8_t Data3;
+    uint8_t Status;
+}
+
+typedef int EFI_STATUS;
+#define EFI_SUCCESS             0
+#define EFI_INVALID_PARAMETER   2
+#define NIC_SIGNATURE           0x5043494e
+
+typedef struct _MY_PROTO MY_PROTO;
+
+typedef EFI_STATUS (*MY_GET)(MY_PROTO* This, uint32_t* Value);
+
+struct_ MY_PROTO {
+    MY_GET Get;
+};
+
+typedef struct {
+    uint32_t Signature;
+    uint32_t Id;
+    uintptr_t BarBase;
+    MY_PROTO Proto;
+} NIC_PRIVATE;
+
+EFI_STATUS NicGet() {
+    
+}
+
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 // >>>>>>>>>>> Main Function >>>>>>>>>>>
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
