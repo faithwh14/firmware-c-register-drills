@@ -3,7 +3,9 @@
 
 #define BIT(n)          (1u << (n))
 
-
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// BIT Mask
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 uint8_t SetBit(uint8_t reg, int n) {
     return reg | BIT(n);
 }
@@ -20,7 +22,18 @@ uint8_t TestBit(uint8_t reg, int n) {
     return (reg >> n) & 1u;
 }
 
-//
+void PrintBit(uint8_t reg) {
+    printf("0b");
+    
+    for (size_t it = (sizeof(reg) * 8 - 1); it >= 0; it--) {
+        putchar(TestBit(reg, it) ? '1' : '0');
+    };
+    printf("\n");
+}
+
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// SWAP
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 uint16_t Swap16(uint16_t value) {
     return (value >> 8) | (value << 8);
 }
@@ -29,12 +42,21 @@ uint32_t Swap32(uint32_t value) {
     return (uint32_t)(Swap16(value >> 16) | Swap16(value << 16));
 }
 
-//
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// LIST ENTRY
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+typedef struct _List List;
 
-struct List {
-    List *Forward;
-    List *Backward;
+struct _List {
+    List* Forward;
+    List* Backward;
 };
+
+typedef _Entry {
+    uint8_t Signature[4];
+    uint8_t Id;
+    List* list;
+} Entry;
 
 void InitializeList(List* list) {
     list->Forward = list;
@@ -45,13 +67,15 @@ void InitializeList(List* list) {
     
 // }
 
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// RING BUFFER
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
-//
+typedef struct _Ring {
+    struct _Ring* Forward;
+    struct _Ring* Backward;
+} Ring;
 
-struct Ring {
-    Ring* Forward;
-    Ring* Backward;
-};
 
 void InitializeRing(Ring* ring) {
     ring->Forward = ring;
@@ -71,7 +95,42 @@ void InsertTailRing(Ring* ring, Ring* new) {
     new->Backward = curr;
 }
 
-//
+int RemoveHeadRing(Ring* ring, Ring* target) {
+    Ring* FirstRing = ring;
+    
+    // if (ring == target) {
+    //     ring->Backward->Forward = ring->Forward;
+    //     ring->Forward->Backward = ring->Backward;
+    // }
+    
+    while (ring->Forward != FirstRing) {
+        // ring = ring->Forward;
+        
+        if (ring == target) {
+            ring->Backward->Forward = ring->Forward;
+            ring->Forward->Backward = ring->Backward;
+            return 1;
+        }
+        
+        ring = ring->Forward;
+    }
+    
+    return 0;
+}
+
+int CountRing(Ring* ring) {
+    int count = 0;
+    
+    while (ring->Forward != ring) {
+        count++;
+    }
+    
+    return count;
+}
+
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// Capability Walk
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 int HasCap(uint8_t* reg) {
     return reg[0x06] << 4 & 1u;
 }
@@ -82,11 +141,70 @@ int FindCap(uint8_t* reg, int id) {
     }
     
     int step = 0;
-    uint8_t cap_id = reg[0x34];
+    uint8_t off = reg[0x34] & 0xFC;
+
+    while (off >= 0x40 & step < 48) {
+        if (reg[off] == id) {
+            return reg[off];
+        }
+        off = reg[off + 1u] & 0xFC;
+        step++;
+    }
+    return 0;
 }
 
+int CountCap(uint8_t* reg) {
+    if (!HasCap(reg)) {
+        return 0;
+    }
+    
+    int step = 0;
+    uint8_t off = reg[0x34] & 0xFC;
+    
+    while (off >= 0x40 && step < 48) {
+        step++;
+        off = reg[off + 1u] & 0xFC;
+    }
+    
+    return step;
+}
 
+//
+
+uint32_t MmioRead32(uintptr_t addr) {
+    return *(volatile uint32_t*)addr;
+}
+
+void MmioWrite32(uintptr_t addr, uint32_t value) {
+    *(volatile uint32_t*)addr = value;
+}
+
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// Alignment
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+int IsPow2(uint32_t reg) {
+    return (reg & (reg - 1));
+}
+
+uint32_t AlignDown(uint32_t reg, int n) {
+    return (reg & (uint32_t)(~(BIT(n) - 1)));
+}
+
+uint32_t AlignUp(uint32_t reg, int n) {
+    return ((reg + (uint32_t)(BIT(n) -1)) & (uint32_t)(~(BIT(n) - 1)));
+    // return (reg & (uint32_t)(~(BIT(n) - 1))) + (uint32_t)(BIT(n));
+}
+
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// >>>>>>>>>>> Main Function >>>>>>>>>>>
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 int main(void) {
     printf("Hello World\n");
+    
+    // Test Bit
 }
+
+
