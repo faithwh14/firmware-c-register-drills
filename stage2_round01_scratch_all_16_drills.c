@@ -39,7 +39,7 @@ uint16_t Swap16(uint16_t value) {
 }
 
 uint32_t Swap32(uint32_t value) {
-    return (uint32_t)(Swap16(value >> 16) | Swap16(value << 16));
+    return (uint32_t)((Swap16(value >> 16) | Swap16(value << 16)));
 }
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -47,9 +47,18 @@ uint32_t Swap32(uint32_t value) {
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 typedef struct _List List;
 
+typedef enum _ListType {
+    INT_TYPE    = 0x00,
+    STR_TYPE    = 0x02,
+    JSON_TYPE   = 0x04
+} ListType;
+
 struct _List {
     List* Forward;
     List* Backward;
+    
+    uint8_t Type;
+    const char* Name;
 };
 
 typedef _Entry {
@@ -61,29 +70,13 @@ typedef _Entry {
 void InitializeList(List* list) {
     list->Forward = list;
     list->Backward = list;
-}
-
-// void AddList(List* list, List* new) {
     
-// }
-
-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-// RING BUFFER
-// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-
-typedef struct _Ring {
-    struct _Ring* Forward;
-    struct _Ring* Backward;
-} Ring;
-
-
-void InitializeRing(Ring* ring) {
-    ring->Forward = ring;
-    ring->Backward = ring;
+    list->Type = INT_TYPE;
+    list->Name = "Testing";
 }
 
-void InsertTailRing(Ring* ring, Ring* new) {
-    Ring* curr = ring;
+void InsertTailList(List* list, List* new) {
+    List* curr = list;
     
     while (curr->Forward != ring) {
         curr = curr->Forward;
@@ -95,38 +88,83 @@ void InsertTailRing(Ring* ring, Ring* new) {
     new->Backward = curr;
 }
 
-int RemoveHeadRing(Ring* ring, Ring* target) {
-    Ring* FirstRing = ring;
+int RemoveHeadList(List* list, List* target) {
+    List* FirstList = list;
     
     // if (ring == target) {
     //     ring->Backward->Forward = ring->Forward;
     //     ring->Forward->Backward = ring->Backward;
     // }
     
-    while (ring->Forward != FirstRing) {
+    while (list->Forward != FirstList) {
         // ring = ring->Forward;
         
-        if (ring == target) {
-            ring->Backward->Forward = ring->Forward;
-            ring->Forward->Backward = ring->Backward;
+        if (list == target) {
+            list->Backward->Forward = list->Forward;
+            list->Forward->Backward = list->Backward;
             return 1;
         }
         
-        ring = ring->Forward;
+        list = list->Forward;
     }
     
     return 0;
 }
 
-int CountRing(Ring* ring) {
+int CountList(List* list) {
     int count = 0;
     
-    while (ring->Forward != ring) {
+    while (list->Forward != list) {
         count++;
     }
     
     return count;
 }
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// RING BUFFER
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+#define RING_SIZE 12
+
+typedef struct _Ring {
+    // struct _Ring* Forward;
+    // struct _Ring* Backward;
+    uint8_t buffer[RING_SIZE];
+    int head;
+    int tail;
+} Ring;
+
+
+void InitializeRing(Ring* ring) {
+    ring->head = 0;
+    ring->tail = 0;
+}
+
+void PushHead(Ring* ring, uint8_t value) {
+    if (ring->head <= RING_SIZE) {
+        ring->head ++;
+    } else {
+        ring->head = 0;
+    }
+    
+    ring->buffer[ring->head] = value;
+}
+
+uint8_t PopTail(Ring* ring) {
+    // ring->tail ++;
+    uint8_t value;
+    
+    value = ring->buffer[ring->tail];
+    
+    if (ring->tail <= RING_SIZE) {
+        ring->tail ++;
+    } else {
+        ring->tail = 0;
+    }
+    
+    return value;
+}
+
+
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 // Capability Walk
@@ -169,7 +207,18 @@ int CountCap(uint8_t* reg) {
     return step;
 }
 
-//
+int FindExtCap(uint8_t* reg) {
+    int step = 0;
+    uint8_t off = reg[0x100] & 0xFFC;
+    
+    while (off > 0x100 || step < 480) {
+        //
+    }
+}
+
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// MMIO Read & Write
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 uint32_t MmioRead32(uintptr_t addr) {
     return *(volatile uint32_t*)addr;
@@ -202,6 +251,7 @@ int hw_delay = 0;
 
 #define STATUS_READY    0x01
 #define STATUS_NOTREADY 0x00
+#define STATUS_TIMEOUT  0x02
 
 typedef struct _Object {
     uint8_t Status;
@@ -213,13 +263,15 @@ void InitObject(Object* obj) {
     obj->Status = 0;
 }
 
-int FakeHwTick(Object obj) {
-    if (obj.Status != STATUS_READY) {
-        hw_delay++;
-        return 0;
-    } 
-    
-    return 1;
+int FakeHwTick(Object obj, int timeout) {
+    if (hw_delay > 0) {
+        if (hw_delay == timeout) {
+            obj.Status = STATUS_TIMEOUT;
+            return 0;
+        }
+        
+        hw_delay ++;
+    }
 }
 
 int WaitForBits(Object obj, int timeout) {
@@ -233,49 +285,49 @@ int WaitForBits(Object obj, int timeout) {
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 // Protocols
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-#define CR(Record, Type, Field) \
-    ((Type*)((uint8_t*)(Record) + offsetof(Type, Field)))
+#define BASE_CR(Record, Type, Field) \
+    ((Type*)(uint8_t)Record) - offsetby(Type, Field))
 
-#define Signature   ({0xCE, 0x21, 0x53, 0x12})
-
-typedef struct _Data Data;
+typedef void (Shared*)(uint32_t data);
 
 typedef struct _Protocol {
     uint32_t Signature;
     uint32_t Id;
-    Data* ShrData;
+    uint32_t BarSize;
+    Shared shared;
 } Protocol;
 
-struct Data {
-    uint8_t Data1;
-    uint8_t Data2;
-    uint8_t Data3;
-    uint8_t Status;
+void ShardFn(uint32_t data) {
+    printf("This is for testing\n");
 }
 
-typedef int EFI_STATUS;
-#define EFI_SUCCESS             0
-#define EFI_INVALID_PARAMETER   2
-#define NIC_SIGNATURE           0x5043494e
-
-typedef struct _MY_PROTO MY_PROTO;
-
-typedef EFI_STATUS (*MY_GET)(MY_PROTO* This, uint32_t* Value);
-
-struct_ MY_PROTO {
-    MY_GET Get;
-};
-
-typedef struct {
-    uint32_t Signature;
-    uint32_t Id;
-    uintptr_t BarBase;
-    MY_PROTO Proto;
-} NIC_PRIVATE;
-
-EFI_STATUS NicGet() {
+void ProtocolGet(Shared* shared) {
+    Protocol* proto;
     
+    proto = BASE_CR(shared, Protocol, shared);
+    
+    return proto;
 }
+
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// Endian
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+uint32_t ReadLe32(uint8_t* reg) {
+    return (uint32_t)(reg[0] | reg[1] << 8 | reg[2] << 16 | reg[3] << 24);
+}
+
+uint32_t ReadBe32(uint8_t* reg) {
+    return (uint32_t)(reg[3] | reg[2] << 8 | reg[1] << 16 | reg[0] << 24);
+}
+
+void WriteBe32(uint8_t* reg, uint32_t value) {
+    *(volatile uint32_t*)reg = value;
+}
+
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// ECAM vs Legacy Mmio?
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -288,5 +340,4 @@ int main(void) {
     
     // Test Bit
 }
-
 
