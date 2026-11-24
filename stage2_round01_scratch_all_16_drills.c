@@ -25,7 +25,7 @@ uint8_t TestBit(uint8_t reg, int n) {
 void PrintBit(uint8_t reg) {
     printf("0b");
     
-    for (size_t it = (sizeof(reg) * 8 - 1); it >= 0; it--) {
+    for (int it = (sizeof(reg) * 8 - 1); it >= 0; it--) {
         putchar(TestBit(reg, it) ? '1' : '0');
     };
     printf("\n");
@@ -39,7 +39,11 @@ uint16_t Swap16(uint16_t value) {
 }
 
 uint32_t Swap32(uint32_t value) {
-    return (uint32_t)((Swap16(value >> 16) | Swap16(value << 16)));
+    return ((uint32_t)Swap16((uint16_t)value) << 16) | Swap16((uint16_t)(value >> 16));
+}
+
+uint64_t Swap64(uint64_t value) {
+    return ((uint64_t)Swap32((uint32_t)value) << 32) | Swap32((uint32_t)(value >> 32));
 }
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -54,38 +58,33 @@ typedef enum _ListType {
 } ListType;
 
 struct _List {
-    List* Forward;
-    List* Backward;
-    
-    uint8_t Type;
-    const char* Name;
+    List* ForwardList;
+    List* BackList;
 };
 
-typedef _Entry {
+typedef struct _Entry {
     uint8_t Signature[4];
     uint8_t Id;
     List* list;
 } Entry;
 
 void InitializeList(List* list) {
-    list->Forward = list;
-    list->Backward = list;
-    
-    list->Type = INT_TYPE;
-    list->Name = "Testing";
+    list->ForwardList = list;
+    list->BackList = list;
 }
 
 void InsertTailList(List* list, List* new) {
-    List* curr = list;
-    
-    while (curr->Forward != ring) {
-        curr = curr->Forward;
-    }
-    
-    curr->Forward = new;
-    new->Forward = ring;
-    ring->Backward = new;
-    new->Backward = curr;
+    new->ForwardList = list;
+    list->BackList->ForwardList = new;
+    new->BackList = list->BackList;
+    list->BackList = new;
+}
+
+void InsertHeadList(List* list, List* new) {
+    new->ForwardList = list->ForwardList;
+    list->ForwardList->BackList = new;
+    list->ForwardList = new;
+    new->BackList = list;
 }
 
 int RemoveHeadList(List* list, List* target) {
@@ -96,16 +95,16 @@ int RemoveHeadList(List* list, List* target) {
     //     ring->Forward->Backward = ring->Backward;
     // }
     
-    while (list->Forward != FirstList) {
+    while (list->ForwardList != FirstList) {
         // ring = ring->Forward;
         
         if (list == target) {
-            list->Backward->Forward = list->Forward;
-            list->Forward->Backward = list->Backward;
+            list->BackList->ForwardList = list->ForwardList;
+            list->ForwardList->BackList = list->BackList;
             return 1;
         }
         
-        list = list->Forward;
+        list = list->ForwardList;
     }
     
     return 0;
@@ -114,7 +113,7 @@ int RemoveHeadList(List* list, List* target) {
 int CountList(List* list) {
     int count = 0;
     
-    while (list->Forward != list) {
+    while (list->ForwardList != list) {
         count++;
     }
     
@@ -181,7 +180,7 @@ int FindCap(uint8_t* reg, int id) {
     int step = 0;
     uint8_t off = reg[0x34] & 0xFC;
 
-    while (off >= 0x40 & step < 48) {
+    while (off >= 0x40 || step < 48) {
         if (reg[off] == id) {
             return reg[off];
         }
@@ -199,7 +198,7 @@ int CountCap(uint8_t* reg) {
     int step = 0;
     uint8_t off = reg[0x34] & 0xFC;
     
-    while (off >= 0x40 && step < 48) {
+    while (off >= 0x40 || step < 48) {
         step++;
         off = reg[off + 1u] & 0xFC;
     }
@@ -207,11 +206,11 @@ int CountCap(uint8_t* reg) {
     return step;
 }
 
-int FindExtCap(uint8_t* reg) {
+int FindExtCap(uint16_t* reg) {
     int step = 0;
-    uint8_t off = reg[0x100] & 0xFFC;
+    uint16_t off = reg[0x100] & 0xFFC;
     
-    while (off > 0x100 || step < 480) {
+    while ((off > 0x100) || (step < 480)) {
         //
     }
 }
@@ -241,7 +240,6 @@ uint32_t AlignDown(uint32_t reg, int n) {
 
 uint32_t AlignUp(uint32_t reg, int n) {
     return ((reg + (uint32_t)(BIT(n) -1)) & (uint32_t)(~(BIT(n) - 1)));
-    // return (reg & (uint32_t)(~(BIT(n) - 1))) + (uint32_t)(BIT(n));
 }
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -269,7 +267,7 @@ int FakeHwTick(Object obj, int timeout) {
             obj.Status = STATUS_TIMEOUT;
             return 0;
         }
-        
+        obj.Status = STATUS_NOTREADY;
         hw_delay ++;
     }
 }
@@ -327,7 +325,32 @@ void WriteBe32(uint8_t* reg, uint32_t value) {
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 // ECAM vs Legacy Mmio?
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+typedef struct _PciLocation {
+    uint16_t Bus: 8;
+    uint16_t Device: 5;
+    uint16_t Function: 3;
+    
+    //
+    uint16_6 Reserved: 12;
+} PciLocation;
 
+uint32_t GenEcam(PciLocation* loc) {
+    return (loc->Function << 12) | (loc->Device << 15) | (loc->Bus << 20) | loc->Reserved;
+}
+
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// CheckSum
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// Pointer Alrithmetric
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// Union View
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -340,4 +363,3 @@ int main(void) {
     
     // Test Bit
 }
-
