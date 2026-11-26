@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #define BIT(n)          (1u << (n))
@@ -22,11 +23,24 @@ uint8_t TestBit(uint8_t reg, int n) {
     return (reg >> n) & 1u;
 }
 
+uint16_t TestBit16(uint16_t reg, int n) {
+    return (reg >> n) & 1u;
+}
+
 void PrintBit(uint8_t reg) {
     printf("0b");
     
     for (int it = (sizeof(reg) * 8 - 1); it >= 0; it--) {
         putchar(TestBit(reg, it) ? '1' : '0');
+    };
+    printf("\n");
+}
+
+void PrintBit16(uint16_t reg) {
+    printf("0b");
+    
+    for (int it = (sizeof(reg) * 8 - 1); it >= 0; it--) {
+        putchar(TestBit16(reg, it) ? '1' : '0');
     };
     printf("\n");
 }
@@ -274,7 +288,7 @@ int FakeHwTick(Object obj, int timeout) {
 
 int WaitForBits(Object obj, int timeout) {
     while (hw_delay < timeout) {
-        if (FakeHwTick(obj)) {
+        if (FakeHwTick(obj, timeout)) {
             return STATUS_READY;
         }
     }
@@ -284,9 +298,9 @@ int WaitForBits(Object obj, int timeout) {
 // Protocols
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 #define BASE_CR(Record, Type, Field) \
-    ((Type*)(uint8_t)Record) - offsetby(Type, Field))
+    ((Type*)(uint8_t*)Record) - offsetof(Type, Field)
 
-typedef void (Shared*)(uint32_t data);
+typedef void (*Shared)(uint32_t data);
 
 typedef struct _Protocol {
     uint32_t Signature;
@@ -303,8 +317,6 @@ void ProtocolGet(Shared* shared) {
     Protocol* proto;
     
     proto = BASE_CR(shared, Protocol, shared);
-    
-    return proto;
 }
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -331,7 +343,7 @@ typedef struct _PciLocation {
     uint16_t Function: 3;
     
     //
-    uint16_6 Reserved: 12;
+    uint16_t Reserved: 12;
 } PciLocation;
 
 uint32_t GenEcam(PciLocation* loc) {
@@ -346,11 +358,55 @@ uint32_t GenEcam(PciLocation* loc) {
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 // Pointer Alrithmetric
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+typedef struct _Hdr {
+    uint32_t a;
+    uint8_t b;
+    
+    uint32_t c;
+} Hdr;
 
+void FindHdr(Hdr* hdr, int n) {
+    Hdr* curr_hdr = hdr + n;
+    // Hdr* curr_hdr = (hdr + sizeof(hdr) * n);
+    
+    PrintBit(curr_hdr->b);
+    
+    
+    // uint32_t* test = (uint32*)addr + 2 * sizeof(uint32);
+    // Hdr* curr_hdr1 = (Hdr*)test;
+    // Hdr curr_hdr = hdr[n];
+}
+
+void FindA(uint8_t* hdr, int n) {
+    uint8_t* curr_hdr = hdr + n;
+    
+    PrintBit(*curr_hdr);
+}
+
+void FindA16(uint16_t* hdr, int n) {
+    uint16_t* curr_hdr = hdr + n;
+    
+    PrintBit16(*curr_hdr);
+}
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 // Union View
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+// Mask & Field
+// >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+uint16_t GetMask(int lo, int hi) {
+    int a = (hi - lo) + 1;
+    
+    return (uint16_t)((BIT(a) - 1) << lo);
+}
+
+uint16_t GetField(uint16_t value, int lo, int hi) {
+    uint16_t msk = GetMask(lo, hi);
+    
+    return (uint16_t)((value & msk) >> lo);
+}
 
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
@@ -361,5 +417,30 @@ uint32_t GenEcam(PciLocation* loc) {
 int main(void) {
     printf("Hello World\n");
     
+    uint8_t testing = 0xac;
+    
+    printf("Testing value is: ");
+    PrintBit(ToggleBit(testing, 2));
+    
+    Hdr hdr[3] = {
+        {0x32431234, 0x32, 0x11122331},
+        {0x32731234, 0x3f, 0x11a22331},
+        {0x32435234, 0x35, 0x11532331}
+    };
+    
+    FindHdr(hdr, 2);
+    
+    uint8_t test[] = {0x23, 0x12, 0xff, 0x32, 0xae};
+    FindA(test, 2);
+    
+    uint16_t test16[] = {0x2323, 0x1212, 0xffff, 0x3232, 0xaeae};
+    // FindA16(test16, 2);
+    // printf("test16[2] is: %x\n", test16[2]);
+    for (size_t it = 0; it < (sizeof(test16) / sizeof(test16[0])); it++) {
+        FindA16(test16, it);
+        printf("test16[%zu] is: %x\n", it, test16[it]);
+    }
     // Test Bit
+    
+    return 0;
 }
